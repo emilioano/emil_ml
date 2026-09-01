@@ -1,0 +1,125 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emil-ml"
+version = "0.1.0"
+description = "EMIL Lab - Enhanced Machine Inspection & Learning Lab: modular industrial anomaly-detection POC"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "tensorflow>=2.16",
+    "streamlit>=1.35",
+    "watchdog>=4.0",
+    "pillow>=10.0",
+    "numpy>=1.26",
+    # YOLO (model_type='yolo'). Ultralytics uses PyTorch, not TensorFlow — this
+    # is a second, separate deep-learning backend alongside TF, unlike
+    # everything else in the project. Unlike TF, PyTorch has working CUDA
+    # wheels for native Windows, so YOLO training can use the GPU without WSL
+    # (unverified on this machine — check `torch.cuda.is_available()`).
+    "ultralytics>=8.3",
+    # Connected-component bounding-box extraction from segmentation masks
+    # (annotation path 2: mask-to-YOLO-box conversion).
+    "scipy>=1.11",
+    # Manual bounding-box annotation UI (annotation path 3).
+    "streamlit-drawable-canvas>=0.9",
+    # Verifies TLS against the OS certificate store instead of a bundled CA
+    # list — used to pre-fetch YOLO's pretrained weights ourselves (see
+    # core/detection/yolo/model.py) on networks where Ultralytics' own
+    # curl-based downloader fails a certificate revocation check that
+    # Windows' own store passes.
+    "truststore>=0.9",
+    # core/diagnostics: non-linear 2D projection of CNN embeddings, to
+    # visually/quantitatively assess class separability before training a
+    # model. PCA (the linear alternative offered alongside it) only needs
+    # scikit-learn, which umap-learn already depends on transitively — listed
+    # explicitly since we import it directly for PCA and silhouette_score.
+    "umap-learn>=0.5",
+    "scikit-learn>=1.4",
+    # core/evaluation: model_type-aware training evaluation reports (confusion
+    # matrices, loss/accuracy curves, ROC/PR curves, score histograms — see
+    # core/base.py's BaseTrainer.evaluate()). Already present transitively
+    # (ultralytics/anomalib/umap-learn all pull it in) but used directly here,
+    # so it's declared explicitly rather than relied on by accident.
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+# Linux/WSL2 only. Not usable on native Windows: TF dropped GPU support
+# there after 2.10, regardless of this extra.
+#
+# Deliberately NOT `tensorflow[and-cuda]`: that pulls in its own pinned
+# nvidia-cudnn-cu12, which collides file-for-file with nvidia-cudnn-cu13
+# (needed if torch is a CUDA-13 build, e.g. torch+cu130 for Blackwell/RTX
+# 50-series GPUs) — cuDNN's .so filename doesn't encode which CUDA major
+# version it targets, so installing both breaks both frameworks. Run
+# scripts/wsl_gpu_setup.sh after this extra (and after installing a
+# GPU-appropriate torch build) to add TensorFlow's GPU support without that
+# collision — see that script for the full explanation.
+gpu = [
+    "tensorflow>=2.16",
+]
+# model_type='patchcore' (core/anomaly/patchcore) — unsupervised, patch-level
+# anomaly detection via anomalib (Intel), strong on small/localized defects
+# that whole-image methods (autoencoder, classifier) miss. Confirmed to
+# coexist cleanly with the existing torch (already required by ultralytics)
+# and tensorflow installs — anomalib's own dependency resolution reused the
+# already-installed torch/torchvision without touching them. The one real
+# collision: anomalib depends on opencv-python-headless, which ships the
+# same `cv2` files as ultralytics' opencv-python under a different package
+# name — installing both leaves pip's metadata for one of them lying about
+# which files it owns. After installing this extra, run:
+#   pip uninstall -y opencv-python opencv-python-headless && pip install --no-deps opencv-python
+# to leave a single, cleanly-tracked install (either variant works
+# functionally; opencv-python matches what ultralytics itself declares).
+# core/anomaly/patchcore/*.py import anomalib lazily (inside functions, not
+# at module top level) specifically so the rest of the app — including
+# `registry_factory`, which every page imports — never requires this extra
+# to be installed at all.
+patchcore = [
+    "anomalib>=2.5",
+]
+# core/reporting (RAG-based report generation, a post-detection step — see
+# core/reporting/__init__.py). ChromaDB is the vector store for the
+# knowledge base; embeddings/generation go through a local Ollama instance
+# (http://localhost:11434), not a Python client library, so nothing else
+# here needs installing for that part. core/reporting/knowledge/*.py import
+# chromadb lazily (inside functions, not at module top level) for the same
+# reason patchcore/*.py do: the rest of the app — including registry_factory,
+# which every page imports — never requires this extra to be installed.
+rag = [
+    "chromadb>=0.5",
+]
+# core/cascade's face-recognition specialist (core/cascade/specialists/face) —
+# MTCNN face detection + InceptionResnetV1 (vggface2) face embeddings.
+# Deliberately facenet-pytorch over dlib/face_recognition: pure Python + torch,
+# no C++ compile step, and torch is already a required dependency (via
+# ultralytics/YOLO) — confirmed installing and running cleanly, including in
+# WSL, with no extra system packages. core/cascade/specialists/face/predictor.py
+# imports it lazily (inside functions, not at module top level), same reasoning
+# as patchcore/rag above: importing core/cascade (which specialist_registry.py,
+# always imported by pipeline.py, pulls in) must not require this extra unless
+# a "human" coarse category is actually dispatched to the face specialist.
+cascade = [
+    "facenet-pytorch>=2.6",
+]
+
+[project.scripts]
+emil-ml = "emil_ml.cli:main"
+# Folder watcher's own process entry point (see watcher/__main__.py's module
+# docstring for why it's a separate long-lived process, never started from
+# inside a Streamlit session) — main() already parses sys.argv itself via
+# argparse when called with no args, so this points straight at it with no
+# wrapper needed, unlike emil-ml above.
+emil-watcher = "emil_ml.watcher.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
