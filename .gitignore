@@ -27,6 +27,7 @@ results/
 .streamlit/secrets.toml
 .DS_Store
 Thumbs.db
+*.log
 
 # Claude Code local settings (machine-specific permissions, not shared config)
 .claude/settings.local.json
