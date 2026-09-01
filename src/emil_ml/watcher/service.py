@@ -81,6 +81,7 @@ from emil_ml.config.settings import (
     WATCHER_STABILITY_CHECK_INTERVAL_SECONDS,
     WATCHER_STABILITY_REQUIRED_CHECKS,
 )
+from emil_ml.core import registry_factory
 from emil_ml.core.inspections import orchestrator
 from emil_ml.utils.paths import for_component
 
@@ -192,8 +193,18 @@ class WatcherService:
         an inactive or soft-deleted component's input/ is never watched,
         matching every other active-use iteration point (RAG's
         index_all(), the Inspect page's component picker).
+
+        Skips cascade-only components (coco_detector) — see
+        registry_factory.is_cascade_only(): they have no approved/failed
+        verdict and go through core/cascade/pipeline.py's run_cascade()
+        instead, which this watcher never calls. Watching their input/
+        would run every dropped file through pipeline.inspect() anyway,
+        always recording it as a nonsensical "failed" verdict with no
+        specialist ever dispatched.
         """
-        active_components = self.registry.list_active()
+        active_components = [
+            c for c in self.registry.list_active() if not registry_factory.is_cascade_only(c.model_type)
+        ]
         active_input_dirs: set[str] = set()
         for component in active_components:
             paths = for_component(component.name)

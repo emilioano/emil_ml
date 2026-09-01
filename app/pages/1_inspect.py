@@ -31,6 +31,7 @@ from PIL import Image
 
 from emil_ml.config.logging_config import configure_logging
 from emil_ml.config.registry import ComponentRegistry
+from emil_ml.core import registry_factory
 from emil_ml.core.anomaly.patchcore.heatmap import render_heatmap_overlay
 from emil_ml.core.detection.yolo.annotation import render_boxes_on_image
 from emil_ml.core.inspections import orchestrator, progress, store
@@ -41,7 +42,20 @@ st.set_page_config(page_title="EMIL Lab — Inspect", page_icon="🔍", layout="
 st.title("Inspect")
 
 registry = ComponentRegistry()
-ready_components = registry.list_ready()
+# Cascade-only components (coco_detector) have no approved/failed verdict and
+# no specialist dispatch on this path — see registry_factory.is_cascade_only().
+# They run exclusively through Onboard's "Run the cascade" section.
+all_ready = registry.list_ready()
+ready_components = [c for c in all_ready if not registry_factory.is_cascade_only(c.model_type)]
+cascade_only_components = [c for c in all_ready if registry_factory.is_cascade_only(c.model_type)]
+
+if cascade_only_components:
+    st.caption(
+        "Object & face cascade component(s) — "
+        + ", ".join(c.display_name for c in cascade_only_components)
+        + " — aren't run from this page (no approved/failed verdict applies to them). "
+        "Use **Onboard → Cascade: object & face recognition → Run the cascade** instead."
+    )
 
 if not ready_components:
     st.info("No trained components yet. Onboard and train one on the **Onboard** page first.")

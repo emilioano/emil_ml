@@ -147,6 +147,18 @@ _PREDICTOR_FACTORIES: dict[tuple[str, str], Callable[[Component], BasePredictor]
 # before submitting, instead of branching on model_type there directly.
 _REQUIRES_FAILED_EXAMPLES = {"classifier"}
 
+# Model types with no binary approved/failed verdict — their PredictionResult
+# .verdict is a category/class label (see core/detection/yolo_coco/predictor.py's
+# own docstring: "verdict carries the ... category as a human-readable summary
+# only ... it is NOT what core/cascade/pipeline.py actually acts on"), never
+# literally "approved". Run through pipeline.inspect() anyway, they always
+# render as failed and never dispatch a specialist, since specialist dispatch
+# only happens in core/cascade/pipeline.py's run_cascade() — a deliberately
+# separate entry point (see that module's own docstring). Queried by the
+# Inspect page and the folder watcher to keep these components off that path
+# entirely, instead of trying to special-case their verdict there.
+_CASCADE_ONLY_MODEL_TYPES = {"coco_detector"}
+
 # Valid-but-not-implemented-yet values, used only to give clearer error messages.
 _NOT_YET_IMPLEMENTED_MODALITIES = {"text"}
 _NOT_YET_IMPLEMENTED_MODEL_TYPES: set[str] = set()
@@ -184,6 +196,12 @@ def get_predictor(modality: str, model_type: str, component: Component) -> BaseP
 def requires_failed_examples(model_type: str) -> bool:
     """Whether this model_type's trainer needs at least one failed-labeled example."""
     return model_type in _REQUIRES_FAILED_EXAMPLES
+
+
+def is_cascade_only(model_type: str) -> bool:
+    """Whether this model_type only makes sense through core/cascade/pipeline.py's
+    run_cascade() — never through the standard approved/failed pipeline.inspect()."""
+    return model_type in _CASCADE_ONLY_MODEL_TYPES
 
 
 def _unavailable_modality_error(modality: str) -> ValueError:
