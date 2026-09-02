@@ -63,8 +63,8 @@ def main() -> None:
         registry.soft_delete(COMPONENT_NAME)
         component_deletion.permanently_delete_component(COMPONENT_NAME, registry=registry)
     face_store.delete_known_individual(PERSON_KEY)
-    policy_store.delete_policy("face", PERSON_KEY)
-    policy_store.delete_policy("face", "unknown")
+    policy_store.delete_policy(COMPONENT_NAME, "face", PERSON_KEY)
+    policy_store.delete_policy(COMPONENT_NAME, "face", "unknown")
 
     try:
         at = AppTest.from_file("app/pages/2_onboard.py", default_timeout=60)
@@ -181,8 +181,8 @@ def main() -> None:
         at.run()
         _check("no exception after saving the 'unknown' policy", not at.exception, detail=str(at.exception))
 
-        alice_policy = policy_store.get_policy("face", PERSON_KEY)
-        unknown_policy = policy_store.get_policy("face", "unknown")
+        alice_policy = policy_store.get_policy(COMPONENT_NAME, "face", PERSON_KEY)
+        unknown_policy = policy_store.get_policy(COMPONENT_NAME, "face", "unknown")
         _check("Alice's policy was actually persisted", alice_policy is not None and alice_policy.label == "approved person")
         _check(
             "unknown's policy was actually persisted with high priority",
@@ -269,8 +269,8 @@ def main() -> None:
         print(f"Overall: {'ALL PASS' if ALL_PASS else 'SOME FAILED — see above'}")
     finally:
         face_store.delete_known_individual(PERSON_KEY)
-        policy_store.delete_policy("face", PERSON_KEY)
-        policy_store.delete_policy("face", "unknown")
+        policy_store.delete_policy(COMPONENT_NAME, "face", PERSON_KEY)
+        policy_store.delete_policy(COMPONENT_NAME, "face", "unknown")
         if registry.get(COMPONENT_NAME) is not None:
             registry.soft_delete(COMPONENT_NAME)
             component_deletion.permanently_delete_component(COMPONENT_NAME, registry=registry)

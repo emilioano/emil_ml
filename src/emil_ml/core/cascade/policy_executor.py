@@ -37,11 +37,11 @@ from emil_ml.core.cascade.policy import (
 
 logger = logging.getLogger(__name__)
 
-# Used when no policy row exists yet for a (specialist, identity_key) —
-# e.g. a person was just added to the known-individuals database but
-# nobody has configured their reaction policy yet. Degrading to "log it"
-# rather than raising means the cascade never breaks just because a
-# policy hasn't been set up — see module docstring.
+# Used when no policy row exists yet for a (component_name, specialist,
+# identity_key) — e.g. a person was just added to the known-individuals
+# database but nobody has configured this component's reaction to them
+# yet. Degrading to "log it" rather than raising means the cascade never
+# breaks just because a policy hasn't been set up — see module docstring.
 _FALLBACK_POLICY_LABEL = "unconfigured"
 _FALLBACK_POLICY_MESSAGE_TEMPLATE = "No reaction policy configured for {specialist}:{identity_key} — logged only."
 
@@ -54,8 +54,9 @@ class PolicyExecutionResult:
     log_message: str
 
 
-def _default_policy(specialist: str, identity_key: str) -> ReactionPolicy:
+def _default_policy(component_name: str, specialist: str, identity_key: str) -> ReactionPolicy:
     return ReactionPolicy(
+        component_name=component_name,
         specialist=specialist,
         identity_key=identity_key,
         label=_FALLBACK_POLICY_LABEL,
@@ -66,21 +67,28 @@ def _default_policy(specialist: str, identity_key: str) -> ReactionPolicy:
 
 
 def execute_policy(
+    component_name: str,
     specialist: str,
     identity_key: str,
     *,
     image: Any = None,
     on_action: Callable[[str, ReactionPolicy], None] | None = None,
 ) -> PolicyExecutionResult:
-    """Look up the policy for (specialist, identity_key) and perform its
-    configured actions in order. Falls back to `_default_policy()` (log
-    only) if nothing is configured yet.
+    """Look up the policy for (component_name, specialist, identity_key)
+    and perform its configured actions in order. Falls back to
+    `_default_policy()` (log only) if this component hasn't configured a
+    reaction for this identity yet — reaction policies are per-component
+    (see policy.py's module docstring: the same person can warrant a
+    different reaction from a different component), so a policy
+    configured on one component never applies to another.
 
     `image` is only used by the "save_frame" action; omit it (or pass
     None) for a caller that never configures that action — no error, the
     action is simply skipped with a debug log (see below).
     """
-    policy = policy_store.get_policy(specialist, identity_key) or _default_policy(specialist, identity_key)
+    policy = policy_store.get_policy(component_name, specialist, identity_key) or _default_policy(
+        component_name, specialist, identity_key
+    )
 
     executed: list[str] = []
     saved_frame_path: Path | None = None

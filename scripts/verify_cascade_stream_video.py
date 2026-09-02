@@ -38,9 +38,14 @@ from emil_ml.config.logging_config import configure_logging
 from emil_ml.config.registry import ComponentRegistry
 from emil_ml.core.cascade import stream_processor, stream_store
 from emil_ml.core.cascade.frame_sources import VideoFileFrameSource
+from emil_ml.core.cascade.specialists.face import store as face_store
+from emil_ml.core.cascade.specialists.face.predictor import FaceRecognitionSpecialist
 from emil_ml.training import onboard
+from emil_ml.utils.paths import for_component
 
 COMPONENT_DISPLAY_NAME = "Cascade Stream Video Test Component"
+TEST_PERSON_NAME = "Cascade Stream Test Person"
+TEST_PERSON_KEY = "cascade-stream-test-person"
 VIDEO_PATH = Path("scratch_cascade_stream_test_video.mp4")
 FPS = 10.0
 FRAME_COUNT = 30  # ~2.9s of video at 10fps (positions 0.0 .. 2.9)
@@ -153,12 +158,63 @@ def main() -> None:
         _check("no results remain", stream_store.list_recent_results(component.name) == [])
         print()
 
+        print("=== 7: a RECOGNIZED identity gets filed under analyzed/<identity>/, named <identity>_<timestamp>.png ===")
+        # Register the real embedding the specialist computes for the astronaut photo, so this
+        # rerun actually matches someone (unlike checks 1-6 above, which never registered anyone —
+        # matched=False for every detection there, so no analyzed/<identity>/ folder was ever touched).
+        import torch
+        from facenet_pytorch import MTCNN, InceptionResnetV1
+
+        mtcnn = MTCNN(keep_all=False)
+        resnet = InceptionResnetV1(pretrained="vggface2").eval()
+        astronaut_image = Image.fromarray(data.astronaut()).convert("RGB")
+        face_tensor = mtcnn(astronaut_image)
+        with torch.no_grad():
+            real_embedding = resnet(face_tensor.unsqueeze(0))[0].tolist()
+        face_store.add_known_individual(TEST_PERSON_NAME, real_embedding, consented=True)
+
+        run2 = stream_store.start_run(component.name, source="video", source_detail=VIDEO_PATH.name)
+        source2 = VideoFileFrameSource(VIDEO_PATH)
+        last_processed_position2: float | None = None
+        for frame in source2.frames():
+            if stream_processor.should_sample(last_processed_position2, SAMPLE_RATE_SECONDS, frame.position_seconds):
+                stream_processor.process_frame(frame, component, run_id=run2.id, source="video", registry=registry)
+                last_processed_position2 = frame.position_seconds
+        source2.close()
+        stream_store.finish_run(run2.id, status="completed")
+
+        results2 = stream_store.list_recent_results(component.name, limit=10)
+        any_matched = any(
+            any((obj.get("specialist_result") or {}).get("matched") for obj in r.objects) for r in results2
+        )
+        _check("at least one result now shows a real match (person was registered)", any_matched)
+
+        identity_dir = for_component(component.name).analyzed_identity_dir(TEST_PERSON_KEY)
+        _check("analyzed/<identity_key>/ directory was created", identity_dir.exists(), detail=str(identity_dir))
+        filed_files = list(identity_dir.glob(f"{TEST_PERSON_KEY}_*.png")) if identity_dir.exists() else []
+        _check(
+            "at least one file named <identity_key>_<timestamp>.png was filed there",
+            len(filed_files) > 0,
+            detail=str([f.name for f in filed_files]),
+        )
+        if filed_files:
+            with Image.open(filed_files[0]) as im:
+                im.verify()
+            _check("the filed file is a valid image", True)
+        print()
+
         print(f"Overall: {'ALL PASS' if ALL_PASS else 'SOME FAILED — see above'}")
     finally:
         component_after = registry.get(COMPONENT_DISPLAY_NAME.lower().replace(" ", "-"))
         if component_after is not None:
+            import shutil
+
+            paths = for_component(component_after.name)
+            if paths.root.exists():
+                shutil.rmtree(paths.root)
             registry.delete(component_after.name)
         stream_store.delete_all_for_component(COMPONENT_DISPLAY_NAME.lower().replace(" ", "-"))
+        face_store.delete_known_individual(TEST_PERSON_KEY)
         VIDEO_PATH.unlink(missing_ok=True)
 
 

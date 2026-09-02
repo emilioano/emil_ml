@@ -350,8 +350,9 @@ def delete_results_for_component(component_name: str) -> int:
     `cascade_stream_results` row for this component AND unlinks each
     row's thumbnail file on disk (best-effort: a file already missing is
     a safe no-op, never an error) — there is no automatic retention job
-    for CASCADE_STREAM_FRAMES_DIR (see settings.py's own comment), so this
-    is the only way that directory ever shrinks.
+    for a component's cascade_stream_frames_dir/analyzed/<identity>/ files
+    (see utils/paths.py's own comment on cascade_stream_frames_dir), so
+    this is the only way those directories ever shrink.
 
     Deliberately leaves `cascade_stream_runs` untouched — a run's own
     counters (frames_seen/frames_processed/status) are lightweight

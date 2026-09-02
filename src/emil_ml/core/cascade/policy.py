@@ -1,13 +1,24 @@
-"""Reaction policy: structured, per-identity configuration for what
-happens once the cascade has identified something — the cascade's analog
-to core/reporting/machine_context/parameters.py's MachineParameterDef.
-Policy is DATA (one row per (specialist, identity_key), see
-policy_store.py); policy_executor.py's execute_policy() is
-identity-agnostic, exactly like machine_context/analyzer.py never
-references a specific parameter's name — it only iterates whatever a
-component's own parameter definitions say. Here, execute_policy() never
-references a specific person (or, for a future specialist, a specific car
-model) by name; all of that knowledge lives in the policy table.
+"""Reaction policy: structured, per-component-per-identity configuration
+for what happens once the cascade has identified something — the
+cascade's analog to core/reporting/machine_context/parameters.py's
+MachineParameterDef. Policy is DATA (one row per (component_name,
+specialist, identity_key), see policy_store.py); policy_executor.py's
+execute_policy() is identity-agnostic, exactly like machine_context/
+analyzer.py never references a specific parameter's name — it only
+iterates whatever a component's own parameter definitions say. Here,
+execute_policy() never references a specific person (or, for a future
+specialist, a specific car model) by name; all of that knowledge lives in
+the policy table.
+
+Scoped per component, not shared across every cascade component the way
+the known-individuals identity registry is (see
+core/cascade/specialists/face/store.py's module docstring on why THAT is
+deliberately global): recognizing Alice is the same fact everywhere, but
+how a component should REACT to recognizing her is a property of that
+component's own context (e.g. a front-door camera welcomes her, a
+restricted-area camera alerts security) — without this, every cascade
+component configured with the same specialist would necessarily behave
+identically, which defeats having more than one.
 
 "unknown" is a first-class `identity_key` with its own policy row — every
 specialist's SpecialistResult.identity_key is "unknown" for a non-match
@@ -36,8 +47,9 @@ DEFAULT_PRIORITY = "normal"
 
 @dataclass(frozen=True)
 class ReactionPolicy:
-    """One identity's configured reaction — a row from policy_store.py."""
+    """One (component, identity)'s configured reaction — a row from policy_store.py."""
 
+    component_name: str  # which cascade component this reaction applies to
     specialist: str  # e.g. "face" — namespaces identity_key, see module docstring
     identity_key: str
     label: str  # e.g. "approved person", "welcome guest", "unknown"

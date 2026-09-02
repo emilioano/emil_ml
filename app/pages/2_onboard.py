@@ -1109,9 +1109,13 @@ else:
                 person_embeddings = face_store.list_embeddings_for(person.identity_key)
                 if person_embeddings:
                     for photo_index, embedding_record in enumerate(person_embeddings, start=1):
-                        ecol1, ecol2 = st.columns([3, 1])
-                        ecol1.caption(f"Photo #{photo_index} — added {embedding_record.created_at}")
-                        if ecol2.button("Remove", key=f"remove_embedding_{embedding_record.id}"):
+                        ecol1, ecol2, ecol3 = st.columns([1, 2, 1])
+                        if embedding_record.photo_path:
+                            ecol1.image(embedding_record.photo_path, width="stretch")
+                        else:
+                            ecol1.caption("(no photo on file — added before photo storage existed)")
+                        ecol2.caption(f"Photo #{photo_index} — added {embedding_record.created_at}")
+                        if ecol3.button("Remove", key=f"remove_embedding_{embedding_record.id}"):
                             face_store.delete_face_embedding(embedding_record.id)
                             st.success(f"Removed photo #{photo_index} from '{person.name}'.")
                             st.rerun()
@@ -1163,7 +1167,9 @@ else:
 
                         if st.button("Add this photo", key=f"add_photo_submit_{person.identity_key}"):
                             face_store.add_face_embedding(
-                                person.identity_key, add_photo_faces[add_photo_chosen_index].embedding
+                                person.identity_key,
+                                add_photo_faces[add_photo_chosen_index].embedding,
+                                photo=add_photo_image,
                             )
                             st.success(f"Added a new photo to '{person.name}'.")
                             st.rerun()
@@ -1224,7 +1230,7 @@ else:
                 x1, y1, x2, y2 = chosen_face.box
                 cropped_face = reg_image.crop((x1, y1, x2, y2))
                 crop_col, form_col = st.columns([1, 2])
-                crop_col.image(cropped_face, caption="Selected face", width=180)
+                crop_col.image(cropped_face, caption="Selected face", width="stretch")
 
                 with form_col:
                     reg_name = st.text_input("Person's name", key=f"face_reg_name_{to_cascade.name}")
@@ -1247,7 +1253,9 @@ else:
                     )
 
                 if register_clicked:
-                    face_store.add_known_individual(reg_name.strip(), chosen_face.embedding, consented=True)
+                    face_store.add_known_individual(
+                        reg_name.strip(), chosen_face.embedding, consented=True, photo=reg_image
+                    )
                     st.success(f"Registered '{reg_name.strip()}' — they will now be recognized by the cascade.")
                     st.rerun()
 
@@ -1348,15 +1356,17 @@ else:
 
     st.markdown("#### Reaction policies")
     st.caption(
-        "What happens when the face specialist identifies someone (or doesn't). 'unknown' is a "
-        "first-class case with its own policy, set below — not a silent fallback."
+        "What happens when the face specialist identifies someone (or doesn't), for THIS "
+        "component specifically — the same person can warrant a different reaction from a "
+        "different cascade component. 'unknown' is a first-class case with its own policy, set "
+        "below — not a silent fallback."
     )
 
     policy_targets: dict[str, str] = {"unknown": "Unknown (no match)"}
     for person in known_individuals:
         policy_targets[person.identity_key] = person.name
 
-    existing_policies = {p.identity_key: p for p in policy_store.list_policies("face")}
+    existing_policies = {p.identity_key: p for p in policy_store.list_policies(to_cascade.name, "face")}
     if "unknown" not in existing_policies:
         st.warning(
             "No policy configured yet for 'unknown' — until you set one below, an unrecognized "
@@ -1423,7 +1433,7 @@ else:
         )
         if st.button("Save policy", key=f"policy_save_{to_cascade.name}_{policy_target_key}"):
             policy_store.upsert_policy(
-                "face", policy_target_key,
+                to_cascade.name, "face", policy_target_key,
                 label=policy_label, message=policy_message, actions=policy_actions, priority=policy_priority,
             )
             st.success(f"Saved policy for '{policy_targets[policy_target_key]}'.")
@@ -1542,7 +1552,8 @@ else:
                     f"- {impact.knowledge_document_count} knowledge document(s), "
                     f"{impact.chromadb_chunk_count} indexed chunk(s)\n"
                     f"- {impact.machine_reading_count} machine reading(s)\n"
-                    f"- {impact.cascade_stream_result_count} cascade stream result(s)\n\n"
+                    f"- {impact.cascade_stream_result_count} cascade stream result(s)\n"
+                    f"- {impact.reaction_policy_count} reaction policy/policies\n\n"
                     "All of it — filesystem, ChromaDB, and database — with nothing left for a "
                     "future component with the same name to inherit."
                 )

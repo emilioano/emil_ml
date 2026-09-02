@@ -194,6 +194,33 @@ class ComponentPaths:
     def analyzed_failed_dir(self) -> Path:
         return self.analyzed_dir / FAILED_SUBDIR
 
+    def analyzed_identity_dir(self, identity_key: str) -> Path:
+        """analyzed/<identity_key>/ — where core/cascade/stream_processor.py
+        files a copy of a frame for each identity the cascade recognized in
+        it. Not part of all_dirs()/create_all(): like archive_dir_for_date(),
+        this only comes into existence the first time that particular
+        identity is actually recognized, and there's an unbounded number of
+        registered identities to pre-create directories for anyway."""
+        return self.analyzed_dir / identity_key
+
+    @property
+    def cascade_stream_frames_dir(self) -> Path:
+        """Where core/cascade/stream_processor.py saves the generic
+        per-frame thumbnail EVERY processed stream frame gets (the Cascade
+        Stream page's results feed reads these) — distinct from
+        analyzed_identity_dir() above, which additionally files a copy only
+        for frames where the cascade actually recognized someone. Lives
+        under this component's own tree, same as every other cascade-stream
+        artifact, since one stream run is always scoped to one component
+        (unlike the face specialist's known-individuals photos or the
+        reaction-policy save_frame action's saved frames — both organized
+        by identity instead, in settings.KNOWN_INDIVIDUAL_PHOTOS_DIR /
+        CASCADE_SAVED_FRAMES_DIR, because an identity isn't owned by any
+        one component the way a stream run is). Not part of
+        all_dirs()/create_all() — only coco_detector components ever use
+        this, created on first write like analyzed_identity_dir() above."""
+        return self.root / "cascade_stream_frames"
+
     @property
     def error_dir(self) -> Path:
         """Where the watcher (emil_ml/watcher/) puts a file it couldn't

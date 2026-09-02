@@ -40,27 +40,39 @@ Embeddings are 512-dim float vectors (facenet-pytorch's InceptionResnetV1,
 vggface2 weights) — biometric data. Stored locally in this project's own
 SQLite file only (no external service, no cloud sync), scoped to these two
 tables; nothing outside core/cascade/specialists/face/ reads them
-directly. Deliberately NOT storing the source photos or face crops
-themselves alongside the embeddings — only the derived vector — to keep
-each person's stored biometric footprint to the minimum this system
-actually needs to function, even though that means the "remove one photo"
-UI can only show a photo's registration timestamp, not a thumbnail of it.
+directly.
+
+PHOTO STORAGE — this originally stored ONLY the derived embedding, never
+the source photo, to keep each person's biometric footprint to the
+minimum this system actually needs to function. That default has been
+deliberately reversed (confirmed with the project owner): a registered
+photo is now ALSO saved to disk under settings.KNOWN_INDIVIDUAL_PHOTOS_DIR
+(one file per embedding, named by that embedding's own row id — see
+add_known_individual()/add_face_embedding()'s `photo` parameter), so the
+Onboard page's registration UI can show what was actually registered
+instead of just a timestamp. This is a real increase in the biometric data
+retained; know that trade-off was made consciously, not by accident. Going
+forward only: embeddings added before this existed have `photo_path=None`
+on their FaceEmbeddingRecord and always will — the original photo was
+never kept for those, and there is nothing left to recover.
 `delete_known_individual()`/`delete_face_embedding()` are both full,
 permanent row removal — the correct way to revoke consent (partially or
 entirely), not a soft-delete/status flag (unlike ComponentRegistry, there
-is no "trash" state here: once consent is withdrawn, the embedding(s)
-should not linger).
+is no "trash" state here: once consent is withdrawn, the embedding(s) —
+and now their photo file(s), if any — should not linger).
 """
 
 from __future__ import annotations
 
 import json
 import math
+import shutil
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 
 from emil_ml.config.database import connect, get_connection
-from emil_ml.config.settings import DB_PATH
+from emil_ml.config.settings import DB_PATH, KNOWN_INDIVIDUAL_PHOTOS_DIR
 
 _INDIVIDUALS_TABLE = "known_individuals"
 _EMBEDDINGS_TABLE = "known_face_embeddings"
@@ -79,28 +91,49 @@ CREATE TABLE IF NOT EXISTS {_EMBEDDINGS_TABLE} (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     identity_key TEXT NOT NULL,
     embedding    TEXT NOT NULL,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    photo_path   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_{_EMBEDDINGS_TABLE}_identity
     ON {_EMBEDDINGS_TABLE} (identity_key);
 """
 
+# (column_name, DDL) pairs applied to databases created before that column
+# existed — see config/database.py's own _apply_migrations() for the
+# pattern this mirrors. `photo_path` is the one column added after this
+# table already existed in production (see module docstring's PHOTO
+# STORAGE section) — NULL by default, so pre-existing embedding rows
+# correctly read back as "no photo on file", not an error.
+_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    ("photo_path", f"ALTER TABLE {_EMBEDDINGS_TABLE} ADD COLUMN photo_path TEXT"),
+)
+
+# Registered photos are downscaled before saving — same disk-economy
+# reasoning core/cascade/stream_processor.py's own thumbnail cap applies;
+# a face-match doesn't need full sensor resolution, and this data is
+# already sensitive enough without also being needlessly large.
+_PHOTO_MAX_DIMENSION = 512
+
 
 @dataclass(frozen=True)
 class FaceEmbeddingRecord:
     """One registered photo's embedding — a read-only view of one
-    `known_face_embeddings` row."""
+    `known_face_embeddings` row. `photo_path` is None for embeddings added
+    before photo storage existed (see module docstring's PHOTO STORAGE
+    section) — there is no photo to recover for those, only a timestamp."""
 
     id: int
     identity_key: str
     embedding: list[float]
     created_at: str
+    photo_path: str | None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FaceEmbeddingRecord":
         return cls(
             id=row["id"], identity_key=row["identity_key"],
             embedding=json.loads(row["embedding"]), created_at=row["created_at"],
+            photo_path=row["photo_path"],
         )
 
 
@@ -144,6 +177,10 @@ _SELECT_INDIVIDUALS = f"""
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
     _migrate_legacy_single_embedding_table(conn)
+    existing_columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({_EMBEDDINGS_TABLE})").fetchall()}
+    for column, ddl in _MIGRATIONS:
+        if column not in existing_columns:
+            conn.execute(ddl)
     # Schema creation/migration must be durable the instant it runs,
     # regardless of which caller triggered it — including a read-only one
     # (get_by_identity_key(), list_known_individuals(), find_best_match(),
@@ -201,23 +238,48 @@ def _slugify(name: str) -> str:
     return slugify(name)
 
 
+def _save_photo(identity_key: str, embedding_id: int, photo: "image_io.ImageInput") -> str:
+    """Downscale and save one registered photo, named by its OWN
+    embedding row's id (assigned by the INSERT that already happened by
+    the time this is called) — an unambiguous 1:1 name with no risk of
+    collision, and immediately obvious which embedding a given file on
+    disk belongs to."""
+    from emil_ml.utils import image_io
+
+    directory = KNOWN_INDIVIDUAL_PHOTOS_DIR / identity_key
+    directory.mkdir(parents=True, exist_ok=True)
+    photo_path = directory / f"{embedding_id}.png"
+    pil_photo = image_io.to_pil(photo).convert("RGB")
+    pil_photo.thumbnail((_PHOTO_MAX_DIMENSION, _PHOTO_MAX_DIMENSION))
+    pil_photo.save(photo_path)
+    return str(photo_path)
+
+
 def add_known_individual(
-    name: str, embedding: list[float], *, consented: bool, notes: str | None = None
+    name: str,
+    embedding: list[float],
+    *,
+    consented: bool,
+    notes: str | None = None,
+    photo: "image_io.ImageInput | None" = None,
 ) -> KnownIndividual:
     """Register a new consenting individual with their FIRST photo's
-    embedding — no model retraining, no image storage; the person row
-    plus one embedding row. Calling this again for an already-registered
-    name (same identity_key) refreshes their name/notes and ADDS another
-    embedding, same as calling add_face_embedding() directly — so
-    "register Alice with 3 photos" is just three calls in a row, and
-    "register Alice now, add 2 more photos later" is this function once
-    followed by add_face_embedding() twice.
+    embedding — the person row plus one embedding row. Calling this again
+    for an already-registered name (same identity_key) refreshes their
+    name/notes and ADDS another embedding, same as calling
+    add_face_embedding() directly — so "register Alice with 3 photos" is
+    just three calls in a row, and "register Alice now, add 2 more photos
+    later" is this function once followed by add_face_embedding() twice.
 
     `consented` has no default on purpose (see module docstring): a
     caller must explicitly pass `consented=True`. Passing `False` (or
     anything else falsy) raises rather than silently no-op-ing, so a
     bug that reaches this function with the wrong flag fails loudly
     instead of quietly skipping the consent gate.
+
+    `photo`, if given, is saved to disk (see module docstring's PHOTO
+    STORAGE section) — omit it to register with an embedding only, same
+    as before that existed.
     """
     if consented is not True:
         raise ValueError(
@@ -239,16 +301,22 @@ def add_known_individual(
                     name = excluded.name, consented = excluded.consented, notes = excluded.notes""",
             (identity_key, name.strip(), int(consented), notes),
         )
-        conn.execute(
+        cursor = conn.execute(
             f"INSERT INTO {_EMBEDDINGS_TABLE} (identity_key, embedding) VALUES (?, ?)",
             (identity_key, json.dumps(embedding)),
         )
+        new_id = cursor.lastrowid
+        if photo is not None:
+            photo_path = _save_photo(identity_key, new_id, photo)
+            conn.execute(f"UPDATE {_EMBEDDINGS_TABLE} SET photo_path = ? WHERE id = ?", (photo_path, new_id))
     individual = get_by_identity_key(identity_key)
     assert individual is not None
     return individual
 
 
-def add_face_embedding(identity_key: str, embedding: list[float]) -> FaceEmbeddingRecord:
+def add_face_embedding(
+    identity_key: str, embedding: list[float], *, photo: "image_io.ImageInput | None" = None
+) -> FaceEmbeddingRecord:
     """Add one more photo's embedding to an ALREADY-registered individual
     — the mechanism behind "add more photos later". Consent was already
     given when the person was first registered (see module docstring: it
@@ -256,6 +324,10 @@ def add_face_embedding(identity_key: str, embedding: list[float]) -> FaceEmbeddi
     Raises KeyError if `identity_key` isn't a registered individual —
     use add_known_individual() to register the person with their first
     photo first.
+
+    `photo`, if given, is saved to disk (see module docstring's PHOTO
+    STORAGE section) — omit it to add an embedding only, same as before
+    that existed.
     """
     if not embedding:
         raise ValueError("embedding cannot be empty")
@@ -269,6 +341,9 @@ def add_face_embedding(identity_key: str, embedding: list[float]) -> FaceEmbeddi
             (identity_key, json.dumps(embedding)),
         )
         new_id = cursor.lastrowid
+        if photo is not None:
+            photo_path = _save_photo(identity_key, new_id, photo)
+            conn.execute(f"UPDATE {_EMBEDDINGS_TABLE} SET photo_path = ? WHERE id = ?", (photo_path, new_id))
     conn = get_connection(DB_PATH)
     try:
         row = conn.execute(f"SELECT * FROM {_EMBEDDINGS_TABLE} WHERE id = ?", (new_id,)).fetchone()
@@ -313,21 +388,36 @@ def list_embeddings_for(identity_key: str) -> list[FaceEmbeddingRecord]:
 
 
 def delete_face_embedding(embedding_id: int) -> None:
-    """Remove ONE registered photo's embedding — the person and their
-    other embeddings are untouched. A person can end up with zero
-    embeddings this way (still registered/consented, just with nothing
-    to match against yet) — a valid, if unusual, state; add_face_embedding()
-    is how they get a reference photo again."""
+    """Remove ONE registered photo's embedding (and its photo file on
+    disk, if it has one) — the person and their other embeddings are
+    untouched. A person can end up with zero embeddings this way (still
+    registered/consented, just with nothing to match against yet) — a
+    valid, if unusual, state; add_face_embedding() is how they get a
+    reference photo again."""
+    conn = get_connection(DB_PATH)
+    try:
+        _ensure_schema(conn)
+        row = conn.execute(f"SELECT photo_path FROM {_EMBEDDINGS_TABLE} WHERE id = ?", (embedding_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is not None and row["photo_path"]:
+        Path(row["photo_path"]).unlink(missing_ok=True)
+
     with connect(DB_PATH) as conn:
         _ensure_schema(conn)
         conn.execute(f"DELETE FROM {_EMBEDDINGS_TABLE} WHERE id = ?", (embedding_id,))
 
 
 def delete_known_individual(identity_key: str) -> None:
-    """Permanently remove a person AND every embedding of theirs — the
-    correct way to revoke consent entirely (see module docstring: no
-    soft-delete here). Removing just one of their photos instead is
-    delete_face_embedding()."""
+    """Permanently remove a person AND every embedding of theirs, photo
+    files included — the correct way to revoke consent entirely (see
+    module docstring: no soft-delete here, and consent withdrawal must be
+    complete, not partial). Removes the person's ENTIRE photo directory in
+    one shot (not a file-by-file loop) so this stays correct even if a
+    photo file is somehow already missing or a stray file ended up there
+    outside the normal add_face_embedding() path. Removing just one of
+    their photos instead is delete_face_embedding()."""
+    shutil.rmtree(KNOWN_INDIVIDUAL_PHOTOS_DIR / identity_key, ignore_errors=True)
     with connect(DB_PATH) as conn:
         _ensure_schema(conn)
         conn.execute(f"DELETE FROM {_EMBEDDINGS_TABLE} WHERE identity_key = ?", (identity_key,))

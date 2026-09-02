@@ -660,6 +660,17 @@ DEFAULT_FACE_MATCH_DISTANCE_THRESHOLD = 0.9
 # docstring on why the known-individuals table itself is opt-in only).
 CASCADE_SAVED_FRAMES_DIR = DATA_DIR / "cascade" / "saved_frames"
 
+# Where a known individual's registered photos are stored, one subfolder per
+# identity_key — see specialists/face/store.py's module docstring: this
+# project originally stored ONLY the derived embedding, never the source
+# photo, to minimize biometric footprint. Storing photos going forward (a
+# deliberate, explicit reversal of that default, confirmed with the
+# project owner) trades that minimization for the ability to show what was
+# actually registered — embeddings computed BEFORE this existed have no
+# photo on file and never will (there's nothing left to recover), so a
+# `photo_path` of None on an old FaceEmbeddingRecord is expected, not a bug.
+KNOWN_INDIVIDUAL_PHOTOS_DIR = DATA_DIR / "cascade" / "known_individual_photos"
+
 # Per-component: Kafka connection for a continuous cascade stream (see
 # emil_ml/cascade_stream) — empty string means "not configured yet", which
 # the stream process and the Cascade Stream page both treat as a hard stop,
@@ -682,13 +693,19 @@ DEFAULT_CASCADE_STREAM_KAFKA_TOPIC = ""
 # frames per second."
 DEFAULT_CASCADE_STREAM_SAMPLE_RATE_SECONDS = 1.0
 
-# Every frame actually processed by a cascade stream is thumbnailed here —
-# unconditional, unlike CASCADE_SAVED_FRAMES_DIR above (which is
+# Note: every frame actually processed by a cascade stream is thumbnailed
+# unconditionally (unlike CASCADE_SAVED_FRAMES_DIR above, which is
 # identity-scoped and only written when a reaction policy's own
-# "save_frame" action fires). No retention/cleanup job exists for this
-# directory yet — a long-running Kafka consumer will grow it without bound;
-# a future addition, not handled here.
-CASCADE_STREAM_FRAMES_DIR = DATA_DIR / "cascade" / "stream_frames"
+# "save_frame" action fires) — but under the COMPONENT's own folder tree
+# (utils/paths.py's ComponentPaths.cascade_stream_frames_dir), not a
+# top-level cascade/ directory here: unlike a registered identity's photos
+# or saved-frame evidence (both above, and both intentionally NOT
+# component-scoped, since a person isn't owned by any one camera/component),
+# one stream run IS always scoped to exactly one component. No
+# retention/cleanup job exists for that directory yet — a long-running
+# Kafka consumer will grow it without bound; a future addition, not handled
+# here (the Cascade Stream page's "Clear results & images" button is the
+# only cleanup mechanism today).
 
 # --- Cascade live stream (emil_ml/cascade_stream, core/cascade/stream_processor+frame_sources) ---
 # Continuous operation of the cascade above — either a standalone process
@@ -792,4 +809,4 @@ DEFAULT_LOG_LEVEL = os.environ.get("EMIL_LOG_LEVEL", "INFO")
 
 COMPONENTS_DIR.mkdir(parents=True, exist_ok=True)
 CASCADE_SAVED_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
-CASCADE_STREAM_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+KNOWN_INDIVIDUAL_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)

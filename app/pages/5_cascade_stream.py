@@ -64,7 +64,7 @@ def _render_result_card(target, result: "stream_store.CascadeStreamResult") -> N
     with target.container(border=True):
         result_col1, result_col2 = st.columns([1, 2])
         if result.thumbnail_path:
-            result_col1.image(result.thumbnail_path, width=200)
+            result_col1.image(result.thumbnail_path, width="stretch")
         result_col1.caption(
             f"{result.source} · {result.frame_ref} · {result.created_at} · {result.object_count} object(s)"
         )

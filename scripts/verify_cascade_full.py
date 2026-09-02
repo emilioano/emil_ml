@@ -34,8 +34,16 @@ from emil_ml.core.cascade.categories import CATEGORY_ANIMAL, CATEGORY_HUMAN
 from emil_ml.core.cascade.specialists.face import store as face_store
 from emil_ml.core.cascade.specialists.face.predictor import FaceRecognitionSpecialist
 from emil_ml.training import onboard
+from emil_ml.utils.paths import slugify
 
 COMPONENT_DISPLAY_NAME = "Cascade Full Test Component"
+# Reaction policies are now per-component (see policy.py's own docstring) —
+# precomputed here (same slug onboard.create_component() will derive from
+# COMPONENT_DISPLAY_NAME later) so checks 7-9 below can configure policies
+# for the real component's name before that component actually exists yet,
+# and check 11 (a real run_cascade() call against the real, later-created
+# component) finds the exact same policies.
+TEST_COMPONENT_NAME = slugify(COMPONENT_DISPLAY_NAME)
 TEST_PERSON_NAME = "Cascade Test Person"
 TEST_PERSON_KEY = "cascade-test-person"
 
@@ -49,8 +57,8 @@ def main() -> None:
 
     # Clean slate: this script is disposable/re-runnable.
     face_store.delete_known_individual(TEST_PERSON_KEY)
-    policy_store.delete_policy("face", TEST_PERSON_KEY)
-    policy_store.delete_policy("face", "unknown")
+    policy_store.delete_policy(TEST_COMPONENT_NAME, "face", TEST_PERSON_KEY)
+    policy_store.delete_policy(TEST_COMPONENT_NAME, "face", "unknown")
 
     try:
         print("=== 1: specialist_registry is name-keyed; DEFAULT_CATEGORY_SPECIALISTS activates only 'human' ===")
@@ -144,7 +152,7 @@ def main() -> None:
         print()
 
         print("=== 7: reaction policy — unconfigured identity falls back to a safe default (log-only) ===")
-        fallback_result = policy_executor.execute_policy("face", "someone-with-no-policy-yet")
+        fallback_result = policy_executor.execute_policy(TEST_COMPONENT_NAME, "face", "someone-with-no-policy-yet")
         ok7 = fallback_result.executed_actions == ("log",) and fallback_result.saved_frame_path is None
         print(f"  executed_actions={fallback_result.executed_actions} label={fallback_result.policy.label}")
         print(f"-> {'PASS' if ok7 else 'FAIL'}")
@@ -153,20 +161,21 @@ def main() -> None:
 
         print("=== 8: a configured identity's policy executes its OWN distinct actions, incl. save_frame ===")
         policy_store.upsert_policy(
-            "face", TEST_PERSON_KEY,
+            TEST_COMPONENT_NAME, "face", TEST_PERSON_KEY,
             label="approved person", message="Welcome back!", actions=["log", "display", "save_frame"],
             priority="normal",
         )
         policy_store.upsert_policy(
-            "face", "unknown",
+            TEST_COMPONENT_NAME, "face", "unknown",
             label="unknown", message="Unrecognized individual detected.", actions=["log", "alert", "save_frame"],
             priority="high",
         )
         observed_actions: list[str] = []
         known_policy_result = policy_executor.execute_policy(
-            "face", TEST_PERSON_KEY, image=astronaut_image, on_action=lambda action, _policy: observed_actions.append(action)
+            TEST_COMPONENT_NAME, "face", TEST_PERSON_KEY, image=astronaut_image,
+            on_action=lambda action, _policy: observed_actions.append(action),
         )
-        unknown_policy_result = policy_executor.execute_policy("face", "unknown", image=cat_image)
+        unknown_policy_result = policy_executor.execute_policy(TEST_COMPONENT_NAME, "face", "unknown", image=cat_image)
         ok8 = (
             known_policy_result.policy.label == "approved person"
             and known_policy_result.executed_actions == ("log", "display", "save_frame")
@@ -190,7 +199,9 @@ def main() -> None:
         print("=== 9: upsert_policy() rejects an invalid action instead of silently accepting it ===")
         ok9 = False
         try:
-            policy_store.upsert_policy("face", "bad-actions-test", label="x", message="x", actions=["teleport"])
+            policy_store.upsert_policy(
+                TEST_COMPONENT_NAME, "face", "bad-actions-test", label="x", message="x", actions=["teleport"]
+            )
         except ValueError as exc:
             ok9 = True
             print(f"  raised ValueError as expected: {exc}")
@@ -326,10 +337,10 @@ def main() -> None:
         print(f"Overall: {'ALL PASS' if all_pass else 'SOME FAILED — see above'}")
     finally:
         face_store.delete_known_individual(TEST_PERSON_KEY)
-        policy_store.delete_policy("face", TEST_PERSON_KEY)
-        policy_store.delete_policy("face", "unknown")
-        policy_store.delete_policy("face", "someone-with-no-policy-yet")
-        policy_store.delete_policy("face", "bad-actions-test")
+        policy_store.delete_policy(TEST_COMPONENT_NAME, "face", TEST_PERSON_KEY)
+        policy_store.delete_policy(TEST_COMPONENT_NAME, "face", "unknown")
+        policy_store.delete_policy(TEST_COMPONENT_NAME, "face", "someone-with-no-policy-yet")
+        policy_store.delete_policy(TEST_COMPONENT_NAME, "face", "bad-actions-test")
         registry = ComponentRegistry()
         if registry.get(COMPONENT_DISPLAY_NAME.lower().replace(" ", "-")) or registry.get(
             "cascade-full-test-component"

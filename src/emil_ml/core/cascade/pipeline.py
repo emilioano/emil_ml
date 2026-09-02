@@ -116,7 +116,7 @@ def run_cascade(
 
     category_specialists = specialist_registry.parse_category_specialists(component.cascade_category_specialists)
     objects = [
-        _process_detection(image, detection, category_specialists, on_action=on_action)
+        _process_detection(image, detection, category_specialists, component_name=component.name, on_action=on_action)
         for detection in coarse_result.details.get("detections", [])
     ]
     return CascadeResult(coarse=coarse_result, objects=objects)
@@ -127,6 +127,7 @@ def _process_detection(
     detection: dict[str, Any],
     category_specialists: dict[str, str],
     *,
+    component_name: str,
     on_action: Callable[[str, ReactionPolicy], None] | None,
 ) -> DetectedObject:
     """Steps 2-4 for one coarse detection: dispatch a specialist (if the
@@ -149,7 +150,7 @@ def _process_detection(
 
     specialist_result = specialist.identify(image, box=box)
     policy_result = policy_executor.execute_policy(
-        specialist.name, specialist_result.identity_key, image=image, on_action=on_action
+        component_name, specialist.name, specialist_result.identity_key, image=image, on_action=on_action
     )
     return DetectedObject(
         label=detection["class"],

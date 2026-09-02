@@ -25,20 +25,21 @@ from pathlib import Path
 from typing import Callable
 
 from emil_ml.config.registry import Component, ComponentRegistry
-from emil_ml.config.settings import CASCADE_STREAM_FRAMES_DIR
 from emil_ml.core.cascade import pipeline as cascade_pipeline
 from emil_ml.core.cascade import stream_store
 from emil_ml.core.cascade.frame_sources import Frame
 from emil_ml.core.cascade.policy import ReactionPolicy
 from emil_ml.core.detection.yolo import annotation as yolo_annotation
 from emil_ml.utils import image_io
+from emil_ml.utils.paths import for_component
 
 # Every processed stream frame is thumbnailed unconditionally (unlike the
 # identity-scoped, opt-in CASCADE_SAVED_FRAMES_DIR) and there is no
-# retention/cleanup job for CASCADE_STREAM_FRAMES_DIR yet (see settings.py's
-# own comment) — downscaling keeps a long-running consumer's disk growth
-# far slower, at no real cost to the results feed, which only ever displays
-# these at a small fixed width anyway.
+# retention/cleanup job for a component's cascade_stream_frames_dir yet (see
+# utils/paths.py's own comment on that property) — downscaling keeps a
+# long-running consumer's disk growth far slower, at no real cost to the
+# results feed, which only ever displays these at a small fixed width
+# anyway.
 _THUMBNAIL_MAX_DIMENSION = 640
 
 
@@ -76,7 +77,8 @@ def process_frame(
     function always processes what it's given."""
     cascade_result = cascade_pipeline.run_cascade(frame.raw, component.name, registry=registry, on_action=on_action)
 
-    directory = CASCADE_STREAM_FRAMES_DIR / component.name
+    component_paths = for_component(component.name)
+    directory = component_paths.cascade_stream_frames_dir
     directory.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     thumbnail_path = directory / f"{timestamp}.png"
@@ -94,6 +96,22 @@ def process_frame(
         thumbnail = yolo_annotation.render_boxes_on_image(thumbnail, drawable)
     thumbnail.thumbnail((_THUMBNAIL_MAX_DIMENSION, _THUMBNAIL_MAX_DIMENSION))
     thumbnail.save(thumbnail_path)
+
+    # File a copy under analyzed/<identity>/ for every identity the cascade
+    # actually recognized in this frame (never for "unknown" — that's a
+    # specialist ran but found no match, not a recognition) — same
+    # analyzed/<category>/ convention every other model_type already uses
+    # (core/inspections/lifecycle.py's save_analyzed_image(), analyzed/
+    # approved and analyzed/failed), just with the category being an
+    # identity instead of a verdict. One frame with several recognized
+    # people files one copy into each of their folders.
+    for obj in cascade_result.objects:
+        sr = obj.specialist_result
+        if sr is None or not sr.matched:
+            continue
+        identity_dir = component_paths.analyzed_identity_dir(sr.identity_key)
+        identity_dir.mkdir(parents=True, exist_ok=True)
+        thumbnail.save(identity_dir / f"{sr.identity_key}_{timestamp}.png")
 
     return stream_store.record_result(
         run_id,
