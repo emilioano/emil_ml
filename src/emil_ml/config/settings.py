@@ -660,6 +660,83 @@ DEFAULT_FACE_MATCH_DISTANCE_THRESHOLD = 0.9
 # docstring on why the known-individuals table itself is opt-in only).
 CASCADE_SAVED_FRAMES_DIR = DATA_DIR / "cascade" / "saved_frames"
 
+# Per-component: Kafka connection for a continuous cascade stream (see
+# emil_ml/cascade_stream) — empty string means "not configured yet", which
+# the stream process and the Cascade Stream page both treat as a hard stop,
+# not a fallback to some default broker. Only meaningful for coco_detector
+# components (same "ignored by other model_types" convention as
+# coco_confidence_threshold above).
+DEFAULT_CASCADE_STREAM_KAFKA_BOOTSTRAP_SERVERS = ""
+DEFAULT_CASCADE_STREAM_KAFKA_TOPIC = ""
+
+# Per-component: throttle for how often a frame from a continuous source
+# (Kafka or an uploaded video) is actually run through the cascade — "check
+# at most once every N seconds" rather than every single frame, since a
+# real camera feed (or a video's own frame rate) is almost always far
+# denser than an object's presence needs to be re-confirmed. Compared
+# against each Frame's own position_seconds (core/cascade/frame_sources.py),
+# not wall-clock time, so this means the same thing for a live Kafka feed
+# and a video decoding faster than real-time alike — see
+# core/cascade/stream_processor.py's should_sample(). 1.0 (at most 1
+# frame/sec) is a reasonable default for "doesn't need to check that many
+# frames per second."
+DEFAULT_CASCADE_STREAM_SAMPLE_RATE_SECONDS = 1.0
+
+# Every frame actually processed by a cascade stream is thumbnailed here —
+# unconditional, unlike CASCADE_SAVED_FRAMES_DIR above (which is
+# identity-scoped and only written when a reaction policy's own
+# "save_frame" action fires). No retention/cleanup job exists for this
+# directory yet — a long-running Kafka consumer will grow it without bound;
+# a future addition, not handled here.
+CASCADE_STREAM_FRAMES_DIR = DATA_DIR / "cascade" / "stream_frames"
+
+# --- Cascade live stream (emil_ml/cascade_stream, core/cascade/stream_processor+frame_sources) ---
+# Continuous operation of the cascade above — either a standalone process
+# consuming a Kafka topic (emil_ml/cascade_stream, started the same way
+# emil-watcher is: a terminal command, never launched by Streamlit — see
+# that package's own module docstring) or a synchronous, bounded pass over
+# an uploaded video file (run inline from the Cascade Stream page). Both
+# paths share core/cascade/stream_processor.py's per-frame logic and
+# core/cascade/stream_store.py's persistence; only where the frame comes
+# from differs.
+
+# How often (seconds) the Kafka consumer process writes a heartbeat row —
+# i.e. how quickly the page's "is this actually running right now" status
+# can go stale-but-still-marked-running before it's treated as stopped/
+# crashed. Frame RESULTS are still persisted on every processed frame
+# regardless of this — it only governs the separate liveness ping, so it
+# can stay coarse without losing any actual results.
+CASCADE_STREAM_HEARTBEAT_INTERVAL_SECONDS = 5.0
+
+# How long since the last heartbeat before the page stops trusting a
+# status='running' row and treats the stream as stopped/crashed instead —
+# deliberately several heartbeat intervals, not one, so a single slow tick
+# doesn't flash a false "stopped" while the process is still fine.
+CASCADE_STREAM_HEARTBEAT_STALE_SECONDS = 20.0
+
+# Kafka Consumer.poll() timeout, seconds — how long one poll() call blocks
+# waiting for a message before returning and looping again. Also this
+# loop's own responsiveness to a stop request, since that's only checked
+# between poll() calls.
+CASCADE_STREAM_KAFKA_POLL_TIMEOUT_SECONDS = 1.0
+
+# How often (seconds) the Cascade Stream page's live-results feed re-polls
+# the database (st.fragment(run_every=...), the same cross-process-safe
+# pattern app/pages/1_inspect.py's _render_pending_report() already uses
+# for a report streaming in — core/inspections/progress.py's in-memory
+# dict, by contrast, is explicitly single-process only and could never work
+# here, since the Kafka consumer is a separate OS process). A fixed UI
+# cadence, not a per-component setting.
+DEFAULT_CASCADE_STREAM_UI_POLL_SECONDS = 2.0
+
+# Cascade stream run/result history lives in its own self-contained schema
+# (see core/cascade/stream_store.py), same "domain-specific table, not a
+# per-component setting" pattern as INSPECTIONS_TABLE/TRAINING_RUNS_TABLE
+# above — a run's frame-by-frame results don't fit components' SCHEMA any
+# more than an inspection's per-detection boxes do.
+CASCADE_STREAM_RUNS_TABLE = "cascade_stream_runs"
+CASCADE_STREAM_RESULTS_TABLE = "cascade_stream_results"
+
 # --- Folder watcher (emil_ml/watcher) ----------------------------------------
 # A standalone process, independent of Streamlit — see watcher/service.py's
 # module docstring for the full design. These three numbers are its only
@@ -715,3 +792,4 @@ DEFAULT_LOG_LEVEL = os.environ.get("EMIL_LOG_LEVEL", "INFO")
 
 COMPONENTS_DIR.mkdir(parents=True, exist_ok=True)
 CASCADE_SAVED_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+CASCADE_STREAM_FRAMES_DIR.mkdir(parents=True, exist_ok=True)

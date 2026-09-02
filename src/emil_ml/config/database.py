@@ -13,6 +13,9 @@ from emil_ml.config.settings import (
     DEFAULT_AUGMENTATION_STRENGTH,
     DEFAULT_BATCH_SIZE,
     DEFAULT_CASCADE_CATEGORY_SPECIALISTS,
+    DEFAULT_CASCADE_STREAM_KAFKA_BOOTSTRAP_SERVERS,
+    DEFAULT_CASCADE_STREAM_KAFKA_TOPIC,
+    DEFAULT_CASCADE_STREAM_SAMPLE_RATE_SECONDS,
     DEFAULT_CLASSIFIER_BASE_MODEL,
     DEFAULT_CLASSIFIER_POOLING,
     DEFAULT_CLASS_WEIGHT_STRATEGY,
@@ -92,6 +95,9 @@ CREATE TABLE IF NOT EXISTS components (
     resnet_confidence_threshold REAL NOT NULL DEFAULT {DEFAULT_RESNET_CONFIDENCE_THRESHOLD},
     coco_confidence_threshold REAL NOT NULL DEFAULT {DEFAULT_COCO_CONFIDENCE_THRESHOLD},
     cascade_category_specialists TEXT NOT NULL DEFAULT '{DEFAULT_CASCADE_CATEGORY_SPECIALISTS}',
+    cascade_stream_kafka_bootstrap_servers TEXT NOT NULL DEFAULT '{DEFAULT_CASCADE_STREAM_KAFKA_BOOTSTRAP_SERVERS}',
+    cascade_stream_kafka_topic TEXT NOT NULL DEFAULT '{DEFAULT_CASCADE_STREAM_KAFKA_TOPIC}',
+    cascade_stream_sample_rate_seconds REAL NOT NULL DEFAULT {DEFAULT_CASCADE_STREAM_SAMPLE_RATE_SECONDS},
     machine_parameters       TEXT NOT NULL DEFAULT '{DEFAULT_MACHINE_PARAMETERS}',
     reporting_enabled        INTEGER NOT NULL DEFAULT {int(DEFAULT_REPORTING_ENABLED)},
     reporting_condition      TEXT NOT NULL DEFAULT '{DEFAULT_REPORTING_CONDITION}',
@@ -286,6 +292,21 @@ _MIGRATIONS: tuple[tuple[str, str], ...] = (
         "cascade_category_specialists",
         "ALTER TABLE components ADD COLUMN cascade_category_specialists TEXT NOT NULL DEFAULT "
         f"'{DEFAULT_CASCADE_CATEGORY_SPECIALISTS}'",
+    ),
+    (
+        "cascade_stream_kafka_bootstrap_servers",
+        "ALTER TABLE components ADD COLUMN cascade_stream_kafka_bootstrap_servers TEXT NOT NULL DEFAULT "
+        f"'{DEFAULT_CASCADE_STREAM_KAFKA_BOOTSTRAP_SERVERS}'",
+    ),
+    (
+        "cascade_stream_kafka_topic",
+        "ALTER TABLE components ADD COLUMN cascade_stream_kafka_topic TEXT NOT NULL DEFAULT "
+        f"'{DEFAULT_CASCADE_STREAM_KAFKA_TOPIC}'",
+    ),
+    (
+        "cascade_stream_sample_rate_seconds",
+        "ALTER TABLE components ADD COLUMN cascade_stream_sample_rate_seconds REAL NOT NULL DEFAULT "
+        f"{DEFAULT_CASCADE_STREAM_SAMPLE_RATE_SECONDS}",
     ),
 )
 

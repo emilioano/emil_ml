@@ -31,11 +31,11 @@ EMIL_LAB_LOGO = r"""
 # box-drawing alignment. A plain <div> isn't intercepted, so force the
 # monospace/whitespace behavior ourselves instead.
 st.markdown(
-    f'<div style="font-family: Consolas, \'Courier New\', monospace; '
-    f'white-space: pre; overflow-x: auto; line-height: 1.15;">{EMIL_LAB_LOGO}</div>',
+    f'<div style="font-family: Consolas, \'Courier New\', monospace;'
+    f'white-space: pre; overflow-x: auto; line-height: 1.15; color: #33FF33;">{EMIL_LAB_LOGO}</div>',
     unsafe_allow_html=True,
 )
-st.caption("Modular industrial anomaly-detection / inspection tool")
+st.caption("Modular detection and inspection tool")
 
 registry = ComponentRegistry()
 components = registry.list_all()

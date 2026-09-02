@@ -1541,7 +1541,8 @@ else:
                     f"- {impact.training_run_count} recorded training run(s) (performance history)\n"
                     f"- {impact.knowledge_document_count} knowledge document(s), "
                     f"{impact.chromadb_chunk_count} indexed chunk(s)\n"
-                    f"- {impact.machine_reading_count} machine reading(s)\n\n"
+                    f"- {impact.machine_reading_count} machine reading(s)\n"
+                    f"- {impact.cascade_stream_result_count} cascade stream result(s)\n\n"
                     "All of it — filesystem, ChromaDB, and database — with nothing left for a "
                     "future component with the same name to inherit."
                 )

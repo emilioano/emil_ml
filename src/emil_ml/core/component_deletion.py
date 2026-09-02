@@ -35,6 +35,7 @@ from datetime import datetime, timedelta, timezone
 
 from emil_ml.config.registry import ComponentRegistry
 from emil_ml.config.settings import DEFAULT_COMPONENT_DELETION_RETENTION_DAYS
+from emil_ml.core.cascade import stream_store as cascade_stream_store
 from emil_ml.core.inspections import store as inspection_store
 from emil_ml.core.reporting.knowledge import indexer
 from emil_ml.core.reporting.machine_context.source import SqliteMachineContextSource
@@ -69,6 +70,7 @@ class DeletionImpactSummary:
     knowledge_document_count: int
     chromadb_chunk_count: int
     machine_reading_count: int
+    cascade_stream_result_count: int
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,7 @@ class PermanentDeletionResult:
     inspections_removed: int
     machine_readings_removed: int
     training_runs_removed: int
+    cascade_stream_rows_removed: int
     registry_row_removed: bool
     already_complete: bool = False  # True if a prior run had already finished everything
     errors: list[str] = field(default_factory=list)
@@ -127,6 +130,7 @@ def summarize_deletion_impact(component_name: str, *, registry: ComponentRegistr
         knowledge_document_count=knowledge_document_count,
         chromadb_chunk_count=indexer.count_component_chunks(component_name),
         machine_reading_count=SqliteMachineContextSource().count_readings(component_name),
+        cascade_stream_result_count=cascade_stream_store.count_results_for_component(component_name),
     )
 
 
@@ -182,6 +186,7 @@ def permanently_delete_component(
             inspections_removed=0,
             machine_readings_removed=0,
             training_runs_removed=0,
+            cascade_stream_rows_removed=0,
             registry_row_removed=True,
             already_complete=True,
         )
@@ -232,6 +237,13 @@ def permanently_delete_component(
         logger.exception("component=%s permanent delete: training_runs cleanup failed", component_name)
         errors.append(f"training_runs: {exc}")
 
+    cascade_stream_rows_removed = 0
+    try:
+        cascade_stream_rows_removed = cascade_stream_store.delete_all_for_component(component_name)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("component=%s permanent delete: cascade_stream cleanup failed", component_name)
+        errors.append(f"cascade_stream: {exc}")
+
     # The registry row — last, deliberately (see docstring: this is what
     # makes an interrupted-and-resumed deletion safe).
     registry_row_removed = False
@@ -244,10 +256,10 @@ def permanently_delete_component(
 
     logger.info(
         "component=%s permanent deletion %s: filesystem=%s chromadb_chunks=%d inspections=%d "
-        "machine_readings=%d training_runs=%d registry=%s errors=%d",
+        "machine_readings=%d training_runs=%d cascade_stream_rows=%d registry=%s errors=%d",
         component_name, "complete" if not errors else "completed with errors",
         filesystem_removed, chromadb_chunks_removed, inspections_removed, machine_readings_removed,
-        training_runs_removed, registry_row_removed, len(errors),
+        training_runs_removed, cascade_stream_rows_removed, registry_row_removed, len(errors),
     )
     return PermanentDeletionResult(
         component_name=component_name,
@@ -256,6 +268,7 @@ def permanently_delete_component(
         inspections_removed=inspections_removed,
         machine_readings_removed=machine_readings_removed,
         training_runs_removed=training_runs_removed,
+        cascade_stream_rows_removed=cascade_stream_rows_removed,
         registry_row_removed=registry_row_removed,
         errors=errors,
     )

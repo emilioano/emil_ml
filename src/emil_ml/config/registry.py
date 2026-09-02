@@ -34,6 +34,9 @@ from emil_ml.config.settings import (
     DEFAULT_MODALITY,
     DEFAULT_MODEL_TYPE,
     DEFAULT_CASCADE_CATEGORY_SPECIALISTS,
+    DEFAULT_CASCADE_STREAM_KAFKA_BOOTSTRAP_SERVERS,
+    DEFAULT_CASCADE_STREAM_KAFKA_TOPIC,
+    DEFAULT_CASCADE_STREAM_SAMPLE_RATE_SECONDS,
     DEFAULT_COCO_CONFIDENCE_THRESHOLD,
     DEFAULT_PATCHCORE_BACKBONE,
     DEFAULT_PATCHCORE_CORESET_SAMPLING_RATIO,
@@ -113,6 +116,16 @@ SETTINGS_DEFAULTS: dict[str, Any] = {
     # one — see settings.py's own comment and
     # core/cascade/specialist_registry.py's parse/serialize helpers.
     "cascade_category_specialists": DEFAULT_CASCADE_CATEGORY_SPECIALISTS,
+    # coco_detector-only (core/cascade live stream, emil_ml/cascade_stream);
+    # ignored by other model_types. Kafka connection for a continuous
+    # cascade stream — empty means "not configured", not a fallback
+    # broker — see settings.py's own comment.
+    "cascade_stream_kafka_bootstrap_servers": DEFAULT_CASCADE_STREAM_KAFKA_BOOTSTRAP_SERVERS,
+    "cascade_stream_kafka_topic": DEFAULT_CASCADE_STREAM_KAFKA_TOPIC,
+    # coco_detector-only. How often (seconds) a continuous source (Kafka or
+    # an uploaded video) is actually sampled — see settings.py's own
+    # comment and core/cascade/stream_processor.py's should_sample().
+    "cascade_stream_sample_rate_seconds": DEFAULT_CASCADE_STREAM_SAMPLE_RATE_SECONDS,
     # Machine context (core/reporting/machine_context) — used by every
     # model_type equally, not tied to any one detection method. A JSON-
     # encoded list of MachineParameterDef (name, unit, normal range, and
@@ -191,6 +204,9 @@ class Component:
     resnet_confidence_threshold: float
     coco_confidence_threshold: float
     cascade_category_specialists: str
+    cascade_stream_kafka_bootstrap_servers: str
+    cascade_stream_kafka_topic: str
+    cascade_stream_sample_rate_seconds: float
     machine_parameters: str
     reporting_enabled: int
     reporting_condition: str

@@ -108,6 +108,32 @@ rag = [
 cascade = [
     "facenet-pytorch>=2.6",
 ]
+# emil_ml.cascade_stream's Kafka frame source (core/cascade/frame_sources.py's
+# KafkaFrameSource) — confluent-kafka is librdkafka-backed, the most
+# production-proven Python Kafka client. Imported lazily (inside
+# KafkaFrameSource.__init__, not at module top level) — importing
+# frame_sources.py (which core/cascade/stream_processor.py and
+# app/pages/5_cascade_stream.py both do unconditionally) must never require
+# a broker or this extra installed unless a Kafka-backed stream is actually
+# started.
+kafka = [
+    "confluent-kafka>=2.3",
+]
+# emil_ml.cascade_stream's video-file frame source
+# (core/cascade/frame_sources.py's VideoFileFrameSource) and
+# app/pages/5_cascade_stream.py's synchronous video-upload section.
+# Deliberately opencv-python-headless, not opencv-python: this project
+# already carries opencv-python transitively via ultralytics/anomalib, and
+# headless avoids pulling in Qt/GUI bindings this server-side app never
+# uses — see the `patchcore` extra's own comment above for the exact
+# file-collision this can reintroduce if both variants end up installed
+# side by side (same fix applies: uninstall both, reinstall whichever one
+# you want with --no-deps). cv2 is imported lazily (inside
+# VideoFileFrameSource.__init__, not at module top level), same reasoning
+# as the `kafka` extra above.
+video = [
+    "opencv-python-headless>=4.9",
+]
 
 [project.scripts]
 emil-ml = "emil_ml.cli:main"
@@ -117,6 +143,13 @@ emil-ml = "emil_ml.cli:main"
 # argparse when called with no args, so this points straight at it with no
 # wrapper needed, unlike emil-ml above.
 emil-watcher = "emil_ml.watcher.__main__:main"
+# Cascade live-stream consumer's own process entry point (see
+# cascade_stream/service.py's module docstring for why it's a separate
+# long-lived process, mirroring emil-watcher above) — one process per
+# component, started explicitly with --component, never auto-launched by
+# the Streamlit page (app/pages/5_cascade_stream.py only configures
+# settings and polls the database for status).
+emil-cascade-stream = "emil_ml.cascade_stream.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
