@@ -1,4 +1,4 @@
-# EMIL Lab — Enhanced Machine Inspection & Learning Lab
+# EMIL Lab - Enhanced Machine Inspection & Learning Lab
 
 A modular, Streamlit-based platform for visual inspection: onboard
 a component type, choose from seven different machine-learning methods to
